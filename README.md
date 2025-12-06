@@ -123,9 +123,9 @@
 
             <!-- Field Status and Info (Sidebar) -->
             <div class="lg:col-span-1 p-4 bg-gray-800 rounded-xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-100 mb-4">Game & Field Status</h3>
+                <h3 class="text-xl font-bold text-gray-100 mb-4">Game & Economy Status</h3>
                 <div id="field-status-list" class="space-y-3 text-sm text-gray-300">
-                    <p class="loading-status">Fetching game time and fields...</p>
+                    <p class="loading-status">Fetching game time and economy...</p>
                 </div>
             </div>
         </div>
@@ -142,7 +142,6 @@
         const MAP_LOADING = document.getElementById('map-loading');
         
         // Map constants (approximate values for Big Flats Texas map)
-        // These are often needed to translate game coordinates (X, Z) to screen pixels (left, top)
         const MAP_MIN_X = -1024;
         const MAP_MAX_X = 1024;
         const MAP_MIN_Z = -1024;
@@ -150,76 +149,120 @@
         const MAP_SIZE = MAP_MAX_X - MAP_MIN_X; // 2048
 
         /**
+         * Generic fetcher function with error checking.
+         * Throws error if HTTP status is not 200 or if the response content is not valid XML.
+         * @param {string} endpoint The proxy endpoint (e.g., '/status').
+         * @returns {Promise<string>} The raw XML text response.
+         */
+        async function fetchXmlData(endpoint) {
+            const response = await fetch(PROXY_URL + endpoint);
+            
+            if (!response.ok) {
+                // If HTTP status is not 200-299, throw an error
+                let errorDetail = `Status ${response.status} from proxy.`;
+                try {
+                    // Try to parse error JSON returned by the Node.js proxy
+                    const errorJson = await response.json();
+                    errorDetail = errorJson.detail || errorDetail;
+                } catch (e) {
+                    // If JSON parsing fails, just use the status
+                }
+                throw new Error(`Proxy error on ${endpoint}: ${errorDetail}`);
+            }
+
+            const text = await response.text();
+            
+            // Basic check to see if the response looks like XML
+            if (!text.trim().startsWith('<')) {
+                throw new Error(`Invalid response format on ${endpoint}. Not XML.`);
+            }
+
+            return text;
+        }
+
+
+        /**
          * Fetches all data and updates the dashboard.
          */
         async function updateDashboard() {
+            // Remove previous vehicle icons and field labels
+            document.querySelectorAll('.vehicle-icon, .field-label').forEach(el => el.remove());
+
             try {
-                // 1. Fetch Status (for name, players)
-                const statusResponse = await fetch(PROXY_URL + '/status');
-                const statusXml = await statusResponse.text();
-
-                // 2. Fetch Career (for game time, field data)
-                const careerResponse = await fetch(PROXY_URL + '/career');
-                const careerXml = await careerResponse.text();
-
-                // 3. Fetch Vehicles (for equipment locations)
-                const vehiclesResponse = await fetch(PROXY_URL + '/vehicles');
-                const vehiclesXml = await vehiclesResponse.text();
+                // Fetch data concurrently
+                const [statusXml, careerXml, vehiclesXml, economyXml] = await Promise.all([
+                    fetchXmlData('/status').catch(e => { console.error("Status fetch failed:", e); return null; }),
+                    fetchXmlData('/career').catch(e => { console.error("Career fetch failed:", e); return null; }),
+                    fetchXmlData('/vehicles').catch(e => { console.error("Vehicles fetch failed:", e); return null; }),
+                    fetchXmlData('/economy').catch(e => { console.error("Economy fetch failed:", e); return null; })
+                ]);
 
                 // 4. Fetch Map Image (The raw JPG)
                 MAP_IMAGE.src = PROXY_URL + '/mapimage';
-                MAP_LOADING.style.display = 'none'; // Hide loading text once image URL is set
+                MAP_LOADING.style.display = 'none';
 
                 // Wait for the image to load to get dimensions for coordinates
                 await new Promise((resolve, reject) => {
                     MAP_IMAGE.onload = resolve;
-                    MAP_IMAGE.onerror = reject;
+                    MAP_IMAGE.onerror = () => reject(new Error("Failed to load map image."));
                 });
                 
                 // --- Parsing and Display ---
                 
-                // Parse Status and Display (Top Widget)
-                parseStatusAndDisplay(statusXml);
-                
-                // Parse Career and Display (Field Status)
-                parseCareerAndDisplay(careerXml);
+                // Only run parsing if data was successfully fetched (not null)
+                // Isolating failures here prevents a single bad file from crashing the whole display logic.
+                if (statusXml) parseStatusAndDisplay(statusXml);
+                if (careerXml) parseCareerAndDisplay(careerXml);
+                if (vehiclesXml) parseVehiclesAndDisplay(vehiclesXml);
+                if (economyXml) parseEconomyAndDisplay(economyXml);
 
-                // Parse Vehicles and Display (Map Markers)
-                parseVehiclesAndDisplay(vehiclesXml);
+                // If career or economy failed, show a general loading message for the sidebar
+                if (!careerXml && !economyXml) {
+                    FIELD_LIST.innerHTML = '<p class="error-status">Game/Economy data unavailable. Check FS22 savegame files.</p>';
+                }
 
             } catch (error) {
-                console.error("Dashboard Update Failed:", error);
                 handleFailure(error);
             }
         }
 
-        // --- PART 1: STATUS WIDGET (Player Count, Name) ---
+        // --- PART 1: STATUS WIDGET (Player Count, Name, Weather) ---
 
         function parseStatusAndDisplay(xmlString) {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-            
-            const serverElement = xmlDoc.getElementsByTagName('Server')[0];
-            const slotsElement = xmlDoc.getElementsByTagName('Slots')[0];
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+                
+                const serverElement = xmlDoc.getElementsByTagName('Server')[0];
+                const slotsElement = xmlDoc.getElementsByTagName('Slots')[0];
+                const weatherElement = xmlDoc.getElementsByTagName('Weather')[0]; // New: Fetch Weather
 
-            if (!serverElement || !slotsElement) {
-                WIDGET_ELEMENT.innerHTML = '<p class="error-status">Error: Invalid server response structure.</p>';
-                return;
+                if (!serverElement || !slotsElement) {
+                    throw new Error("Invalid Server XML (Status)");
+                }
+                
+                // Weather details (may need adjustment based on exact XML structure)
+                const weatherType = weatherElement ? (weatherElement.getAttribute('type') || 'Unknown') : 'N/A';
+                const weatherText = weatherType.charAt(0).toUpperCase() + weatherType.slice(1);
+                
+                const serverName = serverElement.getAttribute('name') || 'Unknown Server';
+                const mapName = serverElement.getAttribute('mapName') || 'Unknown Map';
+                const numUsed = slotsElement.getAttribute('numUsed') || '0';
+                const capacity = slotsElement.getAttribute('capacity') || '0';
+
+                const htmlContent = `
+                    <h4><span class="status-dot"></span> ${serverName}</h4>
+                    <p>Status: <strong>Online</strong> | Map: ${mapName} | Weather: ${weatherText}</p>
+                    <p>Players: <strong>${numUsed} / ${capacity}</strong></p>
+                `;
+
+                WIDGET_ELEMENT.classList.add('online');
+                WIDGET_ELEMENT.innerHTML = htmlContent;
+            } catch (e) {
+                WIDGET_ELEMENT.classList.remove('online');
+                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed.</p>`;
+                console.error("Status Widget Error:", e);
             }
-
-            const serverName = serverElement.getAttribute('name') || 'Unknown Server';
-            const mapName = serverElement.getAttribute('mapName') || 'Unknown Map';
-            const numUsed = slotsElement.getAttribute('numUsed') || '0';
-            const capacity = slotsElement.getAttribute('capacity') || '0';
-
-            const htmlContent = `
-                <h4><span class="status-dot"></span> ${serverName}</h4>
-                <p>Status: <strong>Online</strong> | Map: ${mapName}</p>
-                <p>Players: <strong>${numUsed} / ${capacity}</strong></p>
-            `;
-
-            WIDGET_ELEMENT.classList.add('online');
-            WIDGET_ELEMENT.innerHTML = htmlContent;
         }
 
         // --- PART 2: FIELD STATUS (Game Time, Fields) ---
@@ -233,90 +276,177 @@
         }
 
         function parseCareerAndDisplay(xmlString) {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-            
-            const serverElement = xmlDoc.getElementsByTagName('Server')[0];
-            const fieldsElements = xmlDoc.getElementsByTagName('Field');
-            
-            let htmlContent = '';
-            
-            // 1. Display Game Time
-            const dayTime = serverElement.getAttribute('dayTime') || '0';
-            const formattedTime = formatGameTime(dayTime);
-
-            htmlContent += `<p class="text-lg font-semibold text-white">Current Game Time: <span class="text-yellow-400">${formattedTime}</span></p><hr class="my-3 border-gray-700">`;
-
-            // 2. Display Field Status (using a simple ownership/ID view)
-            htmlContent += '<p class="font-bold text-gray-200 mb-2">Field Ownership & IDs:</p>';
-            
-            Array.from(fieldsElements).forEach(field => {
-                const id = field.getAttribute('id');
-                const isOwned = field.getAttribute('isOwned') === 'true';
-                const x = parseFloat(field.getAttribute('x'));
-                const z = parseFloat(field.getAttribute('z'));
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
                 
-                const statusText = isOwned ? 'Owned' : 'Available';
-                const statusClass = isOwned ? 'text-green-400' : 'text-red-400';
-
-                htmlContent += `<p class="flex justify-between items-center">
-                    Field #${id} <span class="${statusClass} font-medium">${statusText}</span>
-                </p>`;
-                
-                // Add field markers to the map
-                addMapMarker(MAP_CONTAINER, x, z, `Field ${id}`, 'field');
-            });
-
-            FIELD_LIST.innerHTML = htmlContent;
-        }
-
-        // --- PART 3: VEHICLE LOCATIONS (Map Markers) ---
-
-        function parseVehiclesAndDisplay(xmlString) {
-            // Remove previous vehicle icons
-            document.querySelectorAll('.vehicle-icon').forEach(el => el.remove());
-            
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-            const vehicleElements = xmlDoc.getElementsByTagName('Vehicle');
-
-            Array.from(vehicleElements).forEach(vehicle => {
-                const name = vehicle.getAttribute('name');
-                const category = vehicle.getAttribute('category');
-                // FS uses X and Z for horizontal position, Y for vertical. We use X and Z.
-                const x = parseFloat(vehicle.getAttribute('x'));
-                const z = parseFloat(vehicle.getAttribute('z')); 
-                const fillLevels = vehicle.getAttribute('fillLevels') || '0';
-                
-                let tooltipText = `${name} (${category})`;
-                
-                if (fillLevels !== '0') {
-                    // Simple check for fuel/seed levels
-                    tooltipText += ` | Fill: ${fillLevels.split(' ')[0]}%`; 
+                if (xmlDoc.documentElement.nodeName === "parsererror") {
+                    throw new Error("XML Parser Error: Malformed document returned for Career data.");
                 }
 
-                // Add vehicle icon to the map container
-                addMapMarker(MAP_CONTAINER, x, z, tooltipText, 'vehicle');
-            });
+                const serverElement = xmlDoc.getElementsByTagName('Server')[0];
+                const fieldsElements = xmlDoc.getElementsByTagName('Field');
+                
+                if (!serverElement) {
+                    // THIS IS THE CRITICAL LOGIC. The file exists but doesn't have the expected content.
+                    throw new Error("Invalid savegame data. The FS22 server likely isn't running an active save.");
+                }
+
+                let htmlContent = '';
+                
+                // 1. Display Game Time
+                const dayTime = serverElement.getAttribute('dayTime') || '0';
+                const formattedTime = formatGameTime(dayTime);
+
+                htmlContent += `<p class="text-lg font-semibold text-white">Current Game Time: <span class="text-yellow-400">${formattedTime}</span></p><hr class="my-3 border-gray-700">`;
+
+                // 2. Display Field Status (using a simple ownership/ID view)
+                htmlContent += '<p class="font-bold text-gray-200 mb-2">Field Ownership & IDs:</p>';
+                
+                Array.from(fieldsElements).forEach(field => {
+                    const id = field.getAttribute('id');
+                    const isOwned = field.getAttribute('isOwned') === 'true';
+                    const x = parseFloat(field.getAttribute('x'));
+                    const z = parseFloat(field.getAttribute('z'));
+                    
+                    const statusText = isOwned ? 'Owned' : 'Available';
+                    const statusClass = isOwned ? 'text-green-400' : 'text-red-400';
+
+                    htmlContent += `<p class="flex justify-between items-center text-sm">
+                        Field #${id} <span class="${statusClass} font-medium">${statusText}</span>
+                    </p>`;
+                    
+                    // Add field markers to the map
+                    addMapMarker(MAP_CONTAINER, x, z, `Field ${id}`, 'field');
+                });
+
+                FIELD_LIST.innerHTML = htmlContent;
+            } catch (e) {
+                // Isolate the display error to this panel and show the detailed message
+                FIELD_LIST.innerHTML = `<p class="error-status">Failed to load Career/Field data.</p><p class="error-status text-xs">Detail: ${e.message}</p>`;
+                console.error("Career/Field Parsing Error:", e);
+            }
+        }
+        
+        // --- PART 3: ECONOMY STATUS (Prices) ---
+        
+        function parseEconomyAndDisplay(xmlString) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+                
+                if (xmlDoc.documentElement.nodeName === "parsererror") {
+                    throw new Error("XML Parser Error: Malformed document returned for Economy data.");
+                }
+
+                const sellPointElements = xmlDoc.getElementsByTagName('sellPoint');
+                
+                if (sellPointElements.length === 0) {
+                    // Check if the overall structure exists, if not, assume file access issue
+                    if (!xmlDoc.getElementsByTagName('Server')[0]) {
+                         throw new Error("Invalid savegame data. The FS22 server likely isn't running an active save.");
+                    }
+                    // If the structure exists but no sell points are listed, it might be correct.
+                    FIELD_LIST.innerHTML += `<p class="error-status mt-4">Economy data is empty or missing.</p>`;
+                    return; 
+                }
+
+                let economyHtml = '<h5 class="text-lg font-semibold text-white mt-4">Top Crop Prices:</h5><ul class="list-disc ml-4 mt-1">';
+                const prices = {};
+
+                // Find all fillType price nodes within all sellPoint nodes
+                Array.from(sellPointElements).forEach(sellPoint => {
+                    const fillTypeElements = sellPoint.getElementsByTagName('fillType');
+                    Array.from(fillTypeElements).forEach(fillType => {
+                        const name = fillType.getAttribute('name');
+                        const price = parseFloat(fillType.getAttribute('price') || 0);
+                        
+                        // Keep track of the highest price found for each crop
+                        if (!prices[name] || price > prices[name].price) {
+                            prices[name] = { price: price, sellPoint: sellPoint.getAttribute('name') };
+                        }
+                    });
+                });
+
+                // Convert map to array, sort by price (descending), and take the top 5
+                const sortedPrices = Object.entries(prices)
+                    .map(([name, data]) => ({ name, ...data }))
+                    .sort((a, b) => b.price - a.price)
+                    .slice(0, 5);
+                    
+                sortedPrices.forEach(item => {
+                    economyHtml += `<li class="text-sm">
+                        <span class="text-yellow-400">${item.name}:</span> $${item.price.toFixed(2)} 
+                        <span class="text-gray-500 text-xs">(${item.sellPoint})</span>
+                    </li>`;
+                });
+                
+                economyHtml += '</ul>';
+                
+                // Append the economy data below the career data
+                const careerData = document.getElementById('field-status-list').innerHTML;
+                document.getElementById('field-status-list').innerHTML = careerData + economyHtml;
+                
+            } catch (e) {
+                document.getElementById('field-status-list').innerHTML += `<p class="error-status mt-4">Failed to load Economy data.</p><p class="error-status text-xs">Detail: ${e.message}</p>`;
+                console.error("Economy Parsing Error:", e);
+            }
+        }
+        
+        // --- PART 4: VEHICLE LOCATIONS (Map Markers) ---
+
+        function parseVehiclesAndDisplay(xmlString) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+
+                if (xmlDoc.documentElement.nodeName === "parsererror") {
+                    throw new Error("XML Parser Error: Malformed document returned for Vehicle data.");
+                }
+
+                const vehicleElements = xmlDoc.getElementsByTagName('Vehicle');
+                
+                if (!xmlDoc.getElementsByTagName('Server')[0]) {
+                    throw new Error("Invalid savegame data. The FS22 server likely isn't running an active save.");
+                }
+
+                // If the file exists but no vehicles are listed, just return.
+                if (vehicleElements.length === 0) {
+                    MAP_LOADING.textContent = "No vehicles currently active in the game save.";
+                    return; 
+                }
+
+                Array.from(vehicleElements).forEach(vehicle => {
+                    const name = vehicle.getAttribute('name');
+                    const category = vehicle.getAttribute('category');
+                    const x = parseFloat(vehicle.getAttribute('x'));
+                    const z = parseFloat(vehicle.getAttribute('z')); 
+                    const fillLevels = vehicle.getAttribute('fillLevels') || '0';
+                    
+                    let tooltipText = `${name} (${category})`;
+                    
+                    if (fillLevels !== '0') {
+                        tooltipText += ` | Fill: ${fillLevels.split(' ')[0]}%`; 
+                    }
+
+                    addMapMarker(MAP_CONTAINER, x, z, tooltipText, 'vehicle');
+                });
+                MAP_LOADING.textContent = ""; // Clear loading message on success
+            } catch (e) {
+                MAP_LOADING.textContent = `Vehicle location data failed: ${e.message}`;
+                console.error("Vehicle Parsing Error:", e);
+            }
         }
         
         // --- HELPER: Coordinate Conversion and Marker Creation ---
 
         /**
          * Converts game coordinates to percentage coordinates relative to the map image.
-         * @param {number} x Game X coordinate.
-         * @param {number} z Game Z coordinate.
-         * @returns {{left: string, top: string}} Percentage positions.
          */
         function gameCoordsToPercent(x, z) {
-            // Normalize X and Z coordinates based on the map's bounds (e.g., -1024 to 1024)
-            // (Coord - Min) / Size = 0 to 1 ratio
             const percentX = (x - MAP_MIN_X) / MAP_SIZE;
             const percentZ = (z - MAP_MIN_Z) / MAP_SIZE;
 
-            // X corresponds to CSS 'left', Z corresponds to CSS 'top' (since positive Z is 'down' on the map)
-            // Need to invert Z if the map image is oriented North-up
-            // For now, assume standard orientation (X = left, Z = top)
             return {
                 left: `${percentX * 100}%`,
                 top: `${(1 - percentZ) * 100}%` // Invert Z to match map visual orientation
@@ -370,7 +500,7 @@
                 <h4><span class="status-dot"></span> FS22 Server</h4>
                 <p>Status: <strong>Offline</strong></p>
                 <p class="error-status">Could not load all data.</p>
-                <p class="error-status text-xs mt-2">${errorMessage}</p>
+                <p class="error-status text-xs mt-2">Detail: ${errorMessage}</p>
             `;
             FIELD_LIST.innerHTML = `<p class="error-status">Failed to load game data.</p>`;
             MAP_LOADING.textContent = "Error loading map. Check proxy or server connection.";
