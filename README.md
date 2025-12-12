@@ -89,9 +89,11 @@
 
             <!-- Field Status and Info (Sidebar) -->
             <div class="lg:col-span-1 p-4 bg-gray-800 rounded-xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-100 mb-4">Game & Economy Status (Telemetry Mod)</h3>
+                <h3 class="text-xl font-bold text-gray-100 mb-4">Advanced Server Diagnostic (RCON)</h3>
                 <div id="field-status-list" class="space-y-3 text-sm text-gray-300">
-                    <p class="critical-error">Awaiting RCON Diagnostic...</p>
+                    <p class="critical-error">External Data Access Unavailable.</p>
+                    <p class="text-yellow-400 text-xs mt-2">The proxy failed to connect to the server's RCON port (27106), indicating G-Portal's firewall is blocking all external access.</p>
+                    <p class="text-xs mt-3">Click the RCON Diagnostic Test Link below to see the official test result.</p>
                 </div>
             </div>
         </div>
@@ -169,21 +171,42 @@
                 MAP_IMAGE.src = PROXY_URL + '/mapimage';
                 MAP_LOADING.style.display = 'none';
 
-                // 3. Run Diagnostic (Expected to fail/return diagnostic JSON)
-                const diagnosticJson = await fetchData('/career', true);
-                
-                // This block runs if the proxy correctly handled the failure
-                if (diagnosticJson && diagnosticJson.data_source === "RCON Diagnostic") {
-                    handleDiagnosticError(diagnosticJson);
-                } else {
-                    // This is for a miracle success (Telemetry mod port opened)
-                    FIELD_LIST.innerHTML = '<p class="text-green-500 font-bold">SUCCESS: Telemetry Mod Data Received!</p>';
-                }
+                // 3. Telemetry Check (Passive - only check the dedicated /career telemetry route which performs RCON check on the server side)
+                // We rely on the /career endpoint to tell us the diagnostic status, but we won't spam the console with errors if it's blocked.
+                await checkTelemetryDiagnostic();
 
             } catch (error) {
                 handleFailure(error);
             }
         }
+        
+        /**
+         * Checks the dedicated telemetry diagnostic route passively.
+         */
+        async function checkTelemetryDiagnostic() {
+             try {
+                // This call attempts the RCON connection on the server (proxy) side.
+                const diagnosticJson = await fetchData('/career', true);
+                
+                // If it succeeds, external access is NOT blocked (miracle case)
+                FIELD_LIST.innerHTML = '<p class="text-green-500 font-bold">SUCCESS: External Data Access is Open!</p>';
+
+            } catch (error) {
+                // If the error includes the specific RCON Timeout message, display the diagnostic failure
+                const errorText = error.message || '';
+                if (errorText.includes('RCON Port 27106. Detail: RCON Connection Timeout')) {
+                    handleDiagnosticError({
+                        message: "External Data Access Unavailable",
+                        details: "Proxy could not connect to RCON Port 27106. This confirms the G-Portal firewall blocks ALL necessary external ports."
+                    });
+                } else {
+                    // Otherwise, show a generic failure
+                    FIELD_LIST.innerHTML = `<p class="critical-error">Proxy/Connection Error. Check proxy logs.</p>`;
+                }
+                console.error("Diagnostic Error:", error);
+            }
+        }
+
 
         // --- HANDLERS ---
 
@@ -213,7 +236,7 @@
                 WIDGET_ELEMENT.innerHTML = htmlContent;
             } catch (e) {
                 WIDGET_ELEMENT.classList.remove('online');
-                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed.</p>`;
+                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed (Port 8170).</p>`;
                 console.error("Status Widget Error:", e);
             }
         }
@@ -228,7 +251,7 @@
                 <p class="text-sm text-yellow-400">RCON Diagnostic Result:</p>
                 <p class="text-xs break-words">${details}</p>
                 <p class="text-sm mt-3">
-                    <span class="critical-error">CONCLUSION:</span> The G-Portal firewall is blocking the Telemetry Mod ports (8080/8081).
+                    <span class="critical-error">CONCLUSION:</span> The G-Portal firewall is blocking all external ports.
                 </p>
             `;
         }
