@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FS22 Dashboard Preview</title>
+    <title>FS22 Live Server Data</title>
     <!-- Load Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load jQuery (required for the widget's JS logic) -->
@@ -55,7 +55,7 @@
         #map-container {
             position: relative;
             width: 100%;
-            padding-top: 100%; /* 1:1 Aspect Ratio (for a square map) */
+            padding-top: 75%; /* 4:3 Aspect Ratio for map */
             overflow: hidden;
             border-radius: 0.5rem;
         }
@@ -68,11 +68,24 @@
             object-fit: cover;
             border-radius: 0.5rem;
         }
+        .data-snippet-box {
+            max-height: 120px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.65rem;
+            background: #111827;
+            padding: 8px;
+            border-radius: 4px;
+            color: #a8ffb5;
+        }
     </style>
 </head>
 <body class="p-4 sm:p-8 flex justify-center items-start min-h-screen">
 
     <div class="w-full max-w-4xl space-y-4">
+        <h1 class="text-3xl font-bold text-gray-100 mb-6">FS22 Live Server Data (Crossplay Compatible)</h1>
+
         <!-- Live Status Widget (Top Bar) -->
         <div id="fs22-status-widget" class="shadow-xl">
             <p class="loading-status">Loading server status...</p>
@@ -80,84 +93,91 @@
 
         <!-- Dashboard Content Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <!-- Map Container (Large Area) -->
+            
+            <!-- Map Container (Left Panel) -->
             <div class="lg:col-span-2 p-4 bg-gray-800 rounded-xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-100 mb-2">Live Map & Equipment Locations</h3>
+                <h3 class="text-xl font-bold text-gray-100 mb-2">Live Map Image</h3>
                 <div id="map-container">
                     <img id="map-image" src="" alt="Loading Map..." class="animate-pulse">
                     <p id="map-loading" class="absolute inset-0 flex items-center justify-center text-white bg-gray-900/50">Loading map data...</p>
                 </div>
             </div>
 
-            <!-- Field Status and Info (Sidebar) -->
-            <div class="lg:col-span-1 p-4 bg-gray-800 rounded-xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-100 mb-4">Advanced Server Diagnostic (RCON)</h3>
-                <div id="field-status-list" class="space-y-3 text-sm text-gray-300">
-                    <p class="critical-error">External Data Access Unavailable.</p>
-                    <p class="text-yellow-400 text-xs mt-2">Running RCON diagnostic check...</p>
+            <!-- Saved Data Display (Right Panel) -->
+            <div class="lg:col-span-1 p-4 bg-gray-800 rounded-xl shadow-xl space-y-4">
+                <h3 class="text-xl font-bold text-gray-100 mb-4">Saved Game Data Snippets</h3>
+                
+                <!-- Career Data -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-300">Career Save Data:</h4>
+                    <p id="career-status" class="text-yellow-400 text-xs mt-1">Fetching saved career data...</p>
+                    <div id="career-data-display" class="data-snippet-box"></div>
+                </div>
+
+                <!-- Vehicles Data -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-300">Vehicles Data:</h4>
+                    <p id="vehicles-status" class="text-yellow-400 text-xs mt-1">Fetching saved vehicles data...</p>
+                    <div id="vehicles-data-display" class="data-snippet-box"></div>
+                </div>
+
+                <!-- Economy Data -->
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-300">Economy Data:</h4>
+                    <p id="economy-status" class="text-yellow-400 text-xs mt-1">Fetching saved economy data...</p>
+                    <div id="economy-data-display" class="data-snippet-box"></div>
                 </div>
             </div>
         </div>
         
-        <!-- DEBUG PANEL WITH ENDPOINT LINKS -->
-        <div class="p-4 bg-gray-800 rounded-xl shadow-xl border border-red-500/50">
-            <h3 class="text-xl font-bold text-red-400 mb-2">FS22 Server Debug Endpoints (Port 8080)</h3>
-            <p class="text-sm text-gray-300 mb-2">
-                Use the /rcon-test endpoint on the proxy URL below to get the definitive RCON status.
-            </p>
-            <div class="space-y-1 text-xs break-all text-gray-400">
-                <a id="rcon-test-link" href="#" target="_blank" class="hover:text-red-300 block">
-                    <span class="font-mono">Proxy RCON Diagnostic Test Link (Click me)</span>
-                </a>
-            </div>
-        </div>
+        <p class="text-gray-400 text-sm mt-4 text-center">Note: Due to Crossplay limitations, this data reflects the last time the server saved, not real-time state.</p>
+        
     </div>
 
 
     <script>
-        // Configuration - Proxy URL is hardcoded here for the preview.
+        // Configuration - Proxy URL
         const PROXY_URL = 'https://fs22-proxy.onrender.com';
         
+        // Element references
         const WIDGET_ELEMENT = document.getElementById('fs22-status-widget');
         const MAP_IMAGE = document.getElementById('map-image');
-        const FIELD_LIST = document.getElementById('field-status-list');
         const MAP_LOADING = document.getElementById('map-loading');
-        const RCON_TEST_LINK = document.getElementById('rcon-test-link');
+        
+        // Saved Data Display references
+        const CAREER_STATUS = document.getElementById('career-status');
+        const CAREER_DISPLAY = document.getElementById('career-data-display');
+        const VEHICLES_STATUS = document.getElementById('vehicles-status');
+        const VEHICLES_DISPLAY = document.getElementById('vehicles-data-display');
+        const ECONOMY_STATUS = document.getElementById('economy-status');
+        const ECONOMY_DISPLAY = document.getElementById('economy-data-display');
 
-        // Set the RCON diagnostic link
-        RCON_TEST_LINK.href = PROXY_URL + '/rcon-test';
 
         /**
          * Generic fetcher function with error checking.
          * @param {string} endpoint The proxy endpoint (e.g., '/status').
-         * @param {boolean} isJson Set to true for JSON endpoints.
-         * @returns {Promise<any>} The raw XML text or parsed JSON object.
+         * @returns {Promise<any>} The raw XML/HTML text.
          */
-        async function fetchData(endpoint, isJson = false) {
+        async function fetchData(endpoint) {
             const response = await fetch(PROXY_URL + endpoint);
             
             if (!response.ok) {
-                let errorDetail = `Status ${response.status} from proxy.`;
+                let errorDetail = `Status ${response.status}`;
                 try {
                     // Try to read a detailed JSON error response from the proxy
                     const errorJson = await response.json();
                     errorDetail = errorJson.details || errorJson.message || errorDetail;
                 } catch (e) { 
-                    // If parsing as JSON fails, just use the status code
+                    // Ignore non-JSON errors
                 } 
-                throw new Error(`Proxy error on ${endpoint}: Request failed. ${errorDetail}`);
+                throw new Error(`Request failed. ${errorDetail}`);
             }
 
-            if (isJson) {
-                return await response.json();
-            } else {
-                const text = await response.text();
-                // Basic XML check (since the dedicated-server-stats feed is XML)
-                if (!text.trim().startsWith('<')) {
-                    throw new Error(`Invalid response format on ${endpoint}. Not XML.`);
-                }
-                return text;
+            const text = await response.text();
+            if (!text.trim().startsWith('<')) {
+                throw new Error(`Invalid response format on ${endpoint}.`);
             }
+            return text;
         }
 
         /**
@@ -165,17 +185,18 @@
          */
         async function updateDashboard() {
             try {
-                // 1. Fetch Status XML (Proxy Endpoint: /status -> dedicated-server-stats.xml)
+                // 1. Fetch Status XML (Proxy Endpoint: /status)
                 const statusXml = await fetchData('/status');
                 parseStatusAndDisplay(statusXml);
 
-                // 2. Fetch Map Image (Proxy Endpoint: /mapimage -> dedicated-server-stats-map.jpg)
+                // 2. Fetch Map Image (Proxy Endpoint: /mapimage)
                 MAP_IMAGE.src = PROXY_URL + '/mapimage';
                 MAP_LOADING.style.display = 'none';
 
-                // 3. RCON Diagnostic Check (Proxy Endpoint: /career -> dedicated-server-savegame.html?file=careerSavegame)
-                // This request triggers the RCON connection attempt on the server side.
-                await checkRconDiagnostic();
+                // 3. Fetch all Saved Data (Proxy Endpoints: /saved/career, /saved/vehicles, /saved/economy)
+                await fetchSavedDataSnippet('/saved/career', CAREER_STATUS, CAREER_DISPLAY, 'Career Data');
+                await fetchSavedDataSnippet('/saved/vehicles', VEHICLES_STATUS, VEHICLES_DISPLAY, 'Vehicles Data');
+                await fetchSavedDataSnippet('/saved/economy', ECONOMY_STATUS, ECONOMY_DISPLAY, 'Economy Data');
 
             } catch (error) {
                 handleFailure(error);
@@ -183,30 +204,37 @@
         }
         
         /**
-         * Checks the RCON diagnostic route (using the /career placeholder endpoint).
+         * Fetches and displays a snippet of saved game data.
+         * @param {string} endpoint The proxy endpoint to fetch.
+         * @param {HTMLElement} statusElement The status text element.
+         * @param {HTMLElement} displayElement The box to show the data.
+         * @param {string} title A descriptive title for the fetch.
          */
-        async function checkRconDiagnostic() {
-             try {
-                // We use /career as a trigger for the server-side RCON test
-                const diagnosticJson = await fetchData('/career', true);
+        async function fetchSavedDataSnippet(endpoint, statusElement, displayElement, title) {
+            statusElement.textContent = `Fetching ${title} from proxy...`;
+            try {
+                // Fetch the HTML/XML string
+                const rawHtmlString = await fetchData(endpoint);
                 
-                // If it succeeds (miracle case)
-                FIELD_LIST.innerHTML = '<p class="text-green-500 font-bold">SUCCESS: External RCON Access is Open!</p>';
+                // Saved data is wrapped in HTML tags which must be stripped for clean display.
+                const cleanData = rawHtmlString
+                    .replace(/<!DOCTYPE html>.*<body>\s*/is, '')
+                    .replace(/\s*<\/body>.*<\/html>$/is, '')     
+                    .trim();
 
-            } catch (error) {
-                const errorText = error.message || '';
+                statusElement.classList.remove('text-yellow-400', 'critical-error');
+                statusElement.classList.add('text-green-500');
+                statusElement.textContent = `${title} Fetched Successfully`;
                 
-                // If the error includes the specific RCON Timeout message, display the diagnostic failure
-                if (errorText.includes('RCON Connection Timeout')) {
-                    handleDiagnosticError({
-                        message: "RCON Service Access Unavailable",
-                        details: "Proxy could not connect to RCON Port 27016. If G-Portal confirmed the firewall is open, the RCON service inside the FS22 server is not running or is misconfigured."
-                    });
-                } else {
-                    // Otherwise, show a generic failure
-                    FIELD_LIST.innerHTML = `<p class="critical-error">Diagnostic Error: ${error.message}</p>`;
-                }
-                console.error("RCON Diagnostic Error:", error);
+                // Display only the first 300 characters as a snippet
+                displayElement.textContent = cleanData.substring(0, 300) + '...';
+                
+            } catch (error) {
+                statusElement.classList.remove('text-yellow-400');
+                statusElement.classList.add('critical-error');
+                statusElement.textContent = `${title} Failed (Check Proxy/Deployment)`;
+                displayElement.textContent = `Error: ${error.message}`;
+                console.error(`${title} Error:`, error);
             }
         }
 
@@ -215,7 +243,6 @@
 
         function parseStatusAndDisplay(xmlString) {
             try {
-                // jQuery XML parsing is necessary here because the widget uses it
                 const xmlDoc = $.parseXML(xmlString);
                 const $xml = $(xmlDoc);
 
@@ -228,9 +255,6 @@
                 const mapName = $server.attr('mapName') || 'Unknown Map';
                 const numUsed = $slots.attr('numUsed') || '0';
                 const capacity = $slots.attr('capacity') || '0';
-
-                // FS22 XML Uptime is a huge number representing milliseconds; not friendly to display
-                // We simplify the display here since the XML format is inconsistent
                 
                 const htmlContent = `
                     <h4><span class="status-dot"></span> ${serverName}</h4>
@@ -247,21 +271,6 @@
             }
         }
         
-        function handleDiagnosticError(errorData) {
-            const message = errorData.message || "Connection Failure";
-            const details = errorData.details || "Details unavailable.";
-            
-            FIELD_LIST.innerHTML = `
-                <p class="critical-error text-base">${message}</p>
-                <hr class="my-2 border-gray-700">
-                <p class="text-sm text-yellow-400">RCON Diagnostic Result:</p>
-                <p class="text-xs break-words">${details}</p>
-                <p class="text-sm mt-3">
-                    <span class="critical-error">CONCLUSION:</span> The RCON service is not responding externally.
-                </p>
-            `;
-        }
-
         function handleFailure(error) {
             console.error("Dashboard Failure:", error);
             const errorMessage = error.message || 'Check proxy URL or server connection.';
@@ -272,8 +281,7 @@
                 <p>Status: <strong>Offline / Proxy Error</strong></p>
                 <p class="critical-error text-xs mt-2">Detail: ${errorMessage}</p>
             `;
-            FIELD_LIST.innerHTML = `<p class="critical-error">Proxy/Connectivity Failure.</p>`;
-            MAP_LOADING.textContent = "Error loading map. Check proxy or server connection.";
+            MAP_LOADING.textContent = "Error loading data. Check proxy or server connection.";
         }
 
 
