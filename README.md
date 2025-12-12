@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FS22 Server Dashboard</title>
+    <title>FS22 Dashboard Preview</title>
     <!-- Load Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load jQuery (required for the widget's JS logic) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <!-- Set default font -->
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -92,17 +94,16 @@
                 <h3 class="text-xl font-bold text-gray-100 mb-4">Advanced Server Diagnostic (RCON)</h3>
                 <div id="field-status-list" class="space-y-3 text-sm text-gray-300">
                     <p class="critical-error">External Data Access Unavailable.</p>
-                    <p class="text-yellow-400 text-xs mt-2">The proxy failed to connect to the server's RCON port (27106), indicating G-Portal's firewall is blocking all external access.</p>
-                    <p class="text-xs mt-3">Click the RCON Diagnostic Test Link below to see the official test result.</p>
+                    <p class="text-yellow-400 text-xs mt-2">Running RCON diagnostic check...</p>
                 </div>
             </div>
         </div>
         
         <!-- DEBUG PANEL WITH ENDPOINT LINKS -->
         <div class="p-4 bg-gray-800 rounded-xl shadow-xl border border-red-500/50">
-            <h3 class="text-xl font-bold text-red-400 mb-2">FS22 Server Debug Endpoints (Port 8170)</h3>
+            <h3 class="text-xl font-bold text-red-400 mb-2">FS22 Server Debug Endpoints (Port 8080)</h3>
             <p class="text-sm text-gray-300 mb-2">
-                Use the /rcon-test endpoint on the proxy URL below to get the definitive G-Portal firewall proof.
+                Use the /rcon-test endpoint on the proxy URL below to get the definitive RCON status.
             </p>
             <div class="space-y-1 text-xs break-all text-gray-400">
                 <a id="rcon-test-link" href="#" target="_blank" class="hover:text-red-300 block">
@@ -114,7 +115,7 @@
 
 
     <script>
-        // Configuration - ***UPDATE THIS IF YOUR RENDER URL CHANGES***
+        // Configuration - Proxy URL is hardcoded here for the preview.
         const PROXY_URL = 'https://fs22-proxy.onrender.com';
         
         const WIDGET_ELEMENT = document.getElementById('fs22-status-widget');
@@ -151,6 +152,7 @@
                 return await response.json();
             } else {
                 const text = await response.text();
+                // Basic XML check (since the dedicated-server-stats feed is XML)
                 if (!text.trim().startsWith('<')) {
                     throw new Error(`Invalid response format on ${endpoint}. Not XML.`);
                 }
@@ -163,17 +165,17 @@
          */
         async function updateDashboard() {
             try {
-                // 1. Fetch Status XML (Standard FS22 API - should work)
+                // 1. Fetch Status XML (Proxy Endpoint: /status -> dedicated-server-stats.xml)
                 const statusXml = await fetchData('/status');
                 parseStatusAndDisplay(statusXml);
 
-                // 2. Fetch Map Image (Standard FS22 API - should work)
+                // 2. Fetch Map Image (Proxy Endpoint: /mapimage -> dedicated-server-stats-map.jpg)
                 MAP_IMAGE.src = PROXY_URL + '/mapimage';
                 MAP_LOADING.style.display = 'none';
 
-                // 3. Telemetry Check (Passive - only check the dedicated /career telemetry route which performs RCON check on the server side)
-                // We rely on the /career endpoint to tell us the diagnostic status, but we won't spam the console with errors if it's blocked.
-                await checkTelemetryDiagnostic();
+                // 3. RCON Diagnostic Check (Proxy Endpoint: /career -> dedicated-server-savegame.html?file=careerSavegame)
+                // This request triggers the RCON connection attempt on the server side.
+                await checkRconDiagnostic();
 
             } catch (error) {
                 handleFailure(error);
@@ -181,29 +183,30 @@
         }
         
         /**
-         * Checks the dedicated telemetry diagnostic route passively.
+         * Checks the RCON diagnostic route (using the /career placeholder endpoint).
          */
-        async function checkTelemetryDiagnostic() {
+        async function checkRconDiagnostic() {
              try {
-                // This call attempts the RCON connection on the server (proxy) side.
+                // We use /career as a trigger for the server-side RCON test
                 const diagnosticJson = await fetchData('/career', true);
                 
-                // If it succeeds, external access is NOT blocked (miracle case)
-                FIELD_LIST.innerHTML = '<p class="text-green-500 font-bold">SUCCESS: External Data Access is Open!</p>';
+                // If it succeeds (miracle case)
+                FIELD_LIST.innerHTML = '<p class="text-green-500 font-bold">SUCCESS: External RCON Access is Open!</p>';
 
             } catch (error) {
-                // If the error includes the specific RCON Timeout message, display the diagnostic failure
                 const errorText = error.message || '';
-                if (errorText.includes('RCON Port 27106. Detail: RCON Connection Timeout')) {
+                
+                // If the error includes the specific RCON Timeout message, display the diagnostic failure
+                if (errorText.includes('RCON Connection Timeout')) {
                     handleDiagnosticError({
-                        message: "External Data Access Unavailable",
-                        details: "Proxy could not connect to RCON Port 27106. This confirms the G-Portal firewall blocks ALL necessary external ports."
+                        message: "RCON Service Access Unavailable",
+                        details: "Proxy could not connect to RCON Port 27016. If G-Portal confirmed the firewall is open, the RCON service inside the FS22 server is not running or is misconfigured."
                     });
                 } else {
                     // Otherwise, show a generic failure
-                    FIELD_LIST.innerHTML = `<p class="critical-error">Proxy/Connection Error. Check proxy logs.</p>`;
+                    FIELD_LIST.innerHTML = `<p class="critical-error">Diagnostic Error: ${error.message}</p>`;
                 }
-                console.error("Diagnostic Error:", error);
+                console.error("RCON Diagnostic Error:", error);
             }
         }
 
@@ -212,23 +215,26 @@
 
         function parseStatusAndDisplay(xmlString) {
             try {
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-                
-                const serverElement = xmlDoc.getElementsByTagName('Server')[0];
-                const slotsElement = xmlDoc.getElementsByTagName('Slots')[0];
-                
-                if (!serverElement || !slotsElement) throw new Error("Invalid Server XML.");
-                
-                const serverName = serverElement.getAttribute('name') || 'Unknown Server';
-                const mapName = serverElement.getAttribute('mapName') || 'Unknown Map';
-                const numUsed = slotsElement.getAttribute('numUsed') || '0';
-                const capacity = slotsElement.getAttribute('capacity') || '0';
-                const uptime = serverElement.getAttribute('uptime') || 'N/A';
+                // jQuery XML parsing is necessary here because the widget uses it
+                const xmlDoc = $.parseXML(xmlString);
+                const $xml = $(xmlDoc);
 
+                const $server = $xml.find('Server');
+                const $slots = $xml.find('Slots');
+                
+                if (!$server.length || !$slots.length) throw new Error("Invalid Server XML structure.");
+                
+                const serverName = $server.attr('name') || 'Unknown Server';
+                const mapName = $server.attr('mapName') || 'Unknown Map';
+                const numUsed = $slots.attr('numUsed') || '0';
+                const capacity = $slots.attr('capacity') || '0';
+
+                // FS22 XML Uptime is a huge number representing milliseconds; not friendly to display
+                // We simplify the display here since the XML format is inconsistent
+                
                 const htmlContent = `
                     <h4><span class="status-dot"></span> ${serverName}</h4>
-                    <p>Status: <strong>Online</strong> | Map: ${mapName} | Uptime: ${uptime}</p>
+                    <p>Status: <strong>Online</strong> | Map: ${mapName}</p>
                     <p>Players: <strong>${numUsed} / ${capacity}</strong></p>
                 `;
 
@@ -236,7 +242,7 @@
                 WIDGET_ELEMENT.innerHTML = htmlContent;
             } catch (e) {
                 WIDGET_ELEMENT.classList.remove('online');
-                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed (Port 8170).</p>`;
+                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed (Port 8080).</p>`;
                 console.error("Status Widget Error:", e);
             }
         }
@@ -251,14 +257,14 @@
                 <p class="text-sm text-yellow-400">RCON Diagnostic Result:</p>
                 <p class="text-xs break-words">${details}</p>
                 <p class="text-sm mt-3">
-                    <span class="critical-error">CONCLUSION:</span> The G-Portal firewall is blocking all external ports.
+                    <span class="critical-error">CONCLUSION:</span> The RCON service is not responding externally.
                 </p>
             `;
         }
 
         function handleFailure(error) {
             console.error("Dashboard Failure:", error);
-            const errorMessage = error.message || 'Check proxy URL or server firewall.';
+            const errorMessage = error.message || 'Check proxy URL or server connection.';
             
             WIDGET_ELEMENT.classList.remove('online');
             WIDGET_ELEMENT.innerHTML = `
