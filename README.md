@@ -3,291 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FS22 Live Server Data</title>
-    <!-- Load Tailwind CSS via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load jQuery (required for the widget's JS logic) -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <!-- Set default font -->
+    <title>FS22 Live Map Console Compatible</title>
+    <!-- PRODUCTION CSS: Compiled using Tailwind CLI in GitHub Actions -->
+    <link href="dist/output.css" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #1f2937;
-        }
-        /* Custom styles for the widget appearance */
-        #fs22-status-widget {
-            background: #2b2b2b;
-            color: #f0f0f0;
-            padding: 1.5rem;
-            border-radius: 0.75rem;
-            line-height: 1.6;
-            margin-bottom: 1rem;
-        }
-        #fs22-status-widget h4 {
-            color: #a8ffb5;
-            margin-top: 0;
-            margin-bottom: 0.3rem;
-            font-weight: 700;
-            font-size: 1.1em;
-        }
-        #fs22-status-widget .status-dot {
-            height: 10px;
-            width: 10px;
-            background-color: #e74c3c; /* Red (Offline) */
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-        }
-        #fs22-status-widget.online .status-dot {
-            background-color: #2ecc71; /* Green (Online) */
-        }
-        .loading-status, .error-status {
-            color: #f1c40f;
-            font-style: italic;
-        }
-        .critical-error {
-            color: #ff5555;
-            font-weight: 700;
-        }
-
-        /* Map specific styles */
+        /* Custom styles for map area and loading */
         #map-container {
-            position: relative;
-            width: 100%;
-            padding-top: 75%; /* 4:3 Aspect Ratio for map */
-            overflow: hidden;
-            border-radius: 0.5rem;
+            min-height: 400px;
+            background-color: #e5e7eb;
+            background-image: url('https://placehold.co/800x400/16a34a/ffffff?text=Placeholder%20Map%20Image');
+            background-size: cover;
+            background-position: center;
         }
-        #map-image {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border-radius: 0.5rem;
+        .loading-animation {
+            border-top-color: #3b82f6;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
         }
-        .data-snippet-box {
-            max-height: 120px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 0.65rem;
-            background: #111827;
-            padding: 8px;
-            border-radius: 4px;
-            color: #a8ffb5;
-        }
+        @-webkit-keyframes spinner { to { -webkit-transform: rotate(360deg); } }
+        @keyframes spinner { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="p-4 sm:p-8 flex justify-center items-start min-h-screen">
+<body class="bg-gray-900 text-gray-100 font-sans">
 
-    <div class="w-full max-w-4xl space-y-4">
-        <h1 class="text-3xl font-bold text-gray-100 mb-6">FS22 Live Server Data (Crossplay Compatible)</h1>
+    <div class="container mx-auto p-4 max-w-4xl">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-yellow-500">FS22 Live Map Console Compatible</h1>
+            <p class="text-gray-400">Viewing synchronized data from your dedicated server.</p>
+        </header>
 
-        <!-- Live Status Widget (Top Bar) -->
-        <div id="fs22-status-widget" class="shadow-xl">
-            <p class="loading-status">Loading server status...</p>
+        <!-- Game Status Summary -->
+        <div id="game-status-summary" class="bg-gray-700 p-4 rounded-lg shadow-inner mb-6 grid grid-cols-2 gap-4 text-center">
+            <p><strong class="text-yellow-300">Farm Name:</strong> <span id="farm-name" class="text-white">Loading...</span></p>
+            <p><strong class="text-yellow-300">Money:</strong> <span id="farm-money" class="text-white">Loading...</span></p>
         </div>
 
-        <!-- Dashboard Content Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            
-            <!-- Map Container (Left Panel) -->
-            <div class="lg:col-span-2 p-4 bg-gray-800 rounded-xl shadow-xl">
-                <h3 class="text-xl font-bold text-gray-100 mb-2">Live Map Image</h3>
-                <div id="map-container">
-                    <img id="map-image" src="" alt="Loading Map..." class="animate-pulse">
-                    <p id="map-loading" class="absolute inset-0 flex items-center justify-center text-white bg-gray-900/50">Loading map data...</p>
-                </div>
-            </div>
-
-            <!-- Saved Data Display (Right Panel) -->
-            <div class="lg:col-span-1 p-4 bg-gray-800 rounded-xl shadow-xl space-y-4">
-                <h3 class="text-xl font-bold text-gray-100 mb-4">Saved Game Data Snippets</h3>
-                
-                <!-- Career Data -->
-                <div>
-                    <h4 class="text-lg font-semibold text-gray-300">Career Save Data:</h4>
-                    <p id="career-status" class="text-yellow-400 text-xs mt-1">Fetching saved career data...</p>
-                    <div id="career-data-display" class="data-snippet-box"></div>
-                </div>
-
-                <!-- Vehicles Data -->
-                <div>
-                    <h4 class="text-lg font-semibold text-gray-300">Vehicles Data:</h4>
-                    <p id="vehicles-status" class="text-yellow-400 text-xs mt-1">Fetching saved vehicles data...</p>
-                    <div id="vehicles-data-display" class="data-snippet-box"></div>
-                </div>
-
-                <!-- Economy Data -->
-                <div>
-                    <h4 class="text-lg font-semibold text-gray-300">Economy Data:</h4>
-                    <p id="economy-status" class="text-yellow-400 text-xs mt-1">Fetching saved economy data...</p>
-                    <div id="economy-data-display" class="data-snippet-box"></div>
-                </div>
+        <!-- Map Visualization Area (Placeholder) -->
+        <div id="map-container" class="rounded-lg shadow-xl overflow-hidden mb-6 relative">
+            <div id="map-status" class="absolute inset-0 flex items-center justify-center bg-gray-900/70 text-lg font-mono">
+                <!-- Status text changes based on fetch state -->
             </div>
         </div>
-        
-        <p class="text-gray-400 text-sm mt-4 text-center">Note: Due to Crossplay limitations, this data reflects the last time the server saved, not real-time state.</p>
-        
+
+        <!-- Data Display Area -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-2xl">
+            <h2 class="text-2xl font-semibold mb-4 text-white">Live Vehicle Status</h2>
+            <div id="vehicle-list" class="space-y-4">
+                <!-- Vehicle data will be injected here -->
+            </div>
+        </div>
     </div>
 
-
     <script>
-        // Configuration - Proxy URL
-        const PROXY_URL = 'https://fs22-proxy.onrender.com';
+        const vehicleList = document.getElementById('vehicle-list');
+        const mapStatus = document.getElementById('map-status');
+        const farmNameElement = document.getElementById('farm-name');
+        const farmMoneyElement = document.getElementById('farm-money');
         
-        // Element references
-        const WIDGET_ELEMENT = document.getElementById('fs22-status-widget');
-        const MAP_IMAGE = document.getElementById('map-image');
-        const MAP_LOADING = document.getElementById('map-loading');
-        
-        // Saved Data Display references
-        const CAREER_STATUS = document.getElementById('career-status');
-        const CAREER_DISPLAY = document.getElementById('career-data-display');
-        const VEHICLES_STATUS = document.getElementById('vehicles-status');
-        const VEHICLES_DISPLAY = document.getElementById('vehicles-data-display');
-        const ECONOMY_STATUS = document.getElementById('economy-status');
-        const ECONOMY_DISPLAY = document.getElementById('economy-data-display');
-
+        // --- SYNCHRONIZED FILE PATHS ---
+        // Using window.location.origin to ensure a valid, absolute URL to fix parsing errors.
+        const BASE_URL = window.location.origin;
+        const VEHICLE_FILE_PATH = BASE_URL + '/map-data/vehicles.xml';
+        const CAREER_FILE_PATH = BASE_URL + '/map-data/careerSavegame.xml'; 
 
         /**
-         * Generic fetcher function with error checking.
-         * @param {string} endpoint The proxy endpoint (e.g., '/status').
-         * @returns {Promise<any>} The raw XML/HTML text.
+         * Utility function to safely format money.
          */
-        async function fetchData(endpoint) {
-            const response = await fetch(PROXY_URL + endpoint);
+        const formatMoney = (amount) => {
+            if (isNaN(amount)) return amount;
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(amount);
+        };
+
+        /**
+         * Parses the Career Savegame XML and updates the summary.
+         * @param {Document} xmlDoc The parsed careerSavegame XML Document.
+         */
+        function displayGameStatus(xmlDoc) {
+            const settings = xmlDoc.getElementsByTagName('settings')[0];
+            const statistics = xmlDoc.getElementsByTagName('statistics')[0];
             
-            if (!response.ok) {
-                let errorDetail = `Status ${response.status}`;
-                try {
-                    // Try to read a detailed JSON error response from the proxy
-                    const errorJson = await response.json();
-                    errorDetail = errorJson.details || errorJson.message || errorDetail;
-                } catch (e) { 
-                    // Ignore non-JSON errors
-                } 
-                throw new Error(`Request failed. ${errorDetail}`);
+            let name = 'N/A';
+            let money = 'N/A';
+
+            if (settings) {
+                const savegameName = settings.getElementsByTagName('savegameName')[0];
+                if (savegameName) {
+                    name = savegameName.textContent;
+                }
             }
 
-            const text = await response.text();
-            if (!text.trim().startsWith('<')) {
-                throw new Error(`Invalid response format on ${endpoint}.`);
+            if (statistics) {
+                const moneyElement = statistics.getElementsByTagName('money')[0];
+                if (moneyElement) {
+                    money = formatMoney(parseFloat(moneyElement.textContent));
+                }
             }
-            return text;
+            
+            farmNameElement.textContent = name;
+            farmMoneyElement.textContent = money;
         }
 
         /**
-         * Fetches all data and updates the dashboard.
+         * Parses the Vehicle XML and updates the vehicle list.
+         * @param {Document} xmlDoc The parsed vehicles XML Document.
          */
-        async function updateDashboard() {
-            try {
-                // 1. Fetch Status XML (Proxy Endpoint: /status)
-                const statusXml = await fetchData('/status');
-                parseStatusAndDisplay(statusXml);
-
-                // 2. Fetch Map Image (Proxy Endpoint: /mapimage)
-                MAP_IMAGE.src = PROXY_URL + '/mapimage';
-                MAP_LOADING.style.display = 'none';
-
-                // 3. Fetch all Saved Data (Proxy Endpoints: /saved/career, /saved/vehicles, /saved/economy)
-                await fetchSavedDataSnippet('/saved/career', CAREER_STATUS, CAREER_DISPLAY, 'Career Data');
-                await fetchSavedDataSnippet('/saved/vehicles', VEHICLES_STATUS, VEHICLES_DISPLAY, 'Vehicles Data');
-                await fetchSavedDataSnippet('/saved/economy', ECONOMY_STATUS, ECONOMY_DISPLAY, 'Economy Data');
-
-            } catch (error) {
-                handleFailure(error);
+        function displayVehicleData(xmlDoc) {
+            const vehicles = xmlDoc.getElementsByTagName('vehicle');
+            
+            if (vehicles.length === 0) {
+                vehicleList.textContent = 'No vehicles found in XML data.';
+                return;
             }
-        }
-        
-        /**
-         * Fetches and displays a snippet of saved game data.
-         * @param {string} endpoint The proxy endpoint to fetch.
-         * @param {HTMLElement} statusElement The status text element.
-         * @param {HTMLElement} displayElement The box to show the data.
-         * @param {string} title A descriptive title for the fetch.
-         */
-        async function fetchSavedDataSnippet(endpoint, statusElement, displayElement, title) {
-            statusElement.textContent = `Fetching ${title} from proxy...`;
-            try {
-                // Fetch the HTML/XML string
-                const rawHtmlString = await fetchData(endpoint);
-                
-                // Saved data is wrapped in HTML tags which must be stripped for clean display.
-                const cleanData = rawHtmlString
-                    .replace(/<!DOCTYPE html>.*<body>\s*/is, '')
-                    .replace(/\s*<\/body>.*<\/html>$/is, '')     
-                    .trim();
 
-                statusElement.classList.remove('text-yellow-400', 'critical-error');
-                statusElement.classList.add('text-green-500');
-                statusElement.textContent = `${title} Fetched Successfully`;
+            let htmlContent = '';
+            
+            for (let i = 0; i < vehicles.length; i++) {
+                const vehicle = vehicles[i];
                 
-                // Display only the first 300 characters as a snippet
-                displayElement.textContent = cleanData.substring(0, 300) + '...';
+                const modNameAttribute = vehicle.getAttribute('modName');
+                const name = modNameAttribute ? modNameAttribute.split('_').pop() : 'Unknown Vehicle';
+                const farmId = vehicle.getAttribute('farmId');
                 
-            } catch (error) {
-                statusElement.classList.remove('text-yellow-400');
-                statusElement.classList.add('critical-error');
-                statusElement.textContent = `${title} Failed (Check Proxy/Deployment)`;
-                displayElement.textContent = `Error: ${error.message}`;
-                console.error(`${title} Error:`, error);
-            }
-        }
+                const component = vehicle.getElementsByTagName('component')[0];
+                const position = component ? component.getAttribute('position') : 'N/A';
+                
+                let fillStatus = 'Empty/N/A';
+                const fillUnit = vehicle.getElementsByTagName('fillUnit')[0];
+                if (fillUnit) {
+                    const unit = fillUnit.getElementsByTagName('unit')[0];
+                    if (unit) {
+                        const fillType = unit.getAttribute('fillType');
+                        const fillLevel = parseFloat(unit.getAttribute('fillLevel')).toFixed(1);
+                        fillStatus = `${fillType}: ${fillLevel} L`;
+                    }
+                }
 
+                const cardColor = farmId === '1' ? 'border-yellow-500' : 'border-gray-500';
 
-        // --- HANDLERS ---
-
-        function parseStatusAndDisplay(xmlString) {
-            try {
-                const xmlDoc = $.parseXML(xmlString);
-                const $xml = $(xmlDoc);
-
-                const $server = $xml.find('Server');
-                const $slots = $xml.find('Slots');
-                
-                if (!$server.length || !$slots.length) throw new Error("Invalid Server XML structure.");
-                
-                const serverName = $server.attr('name') || 'Unknown Server';
-                const mapName = $server.attr('mapName') || 'Unknown Map';
-                const numUsed = $slots.attr('numUsed') || '0';
-                const capacity = $slots.attr('capacity') || '0';
-                
-                const htmlContent = `
-                    <h4><span class="status-dot"></span> ${serverName}</h4>
-                    <p>Status: <strong>Online</strong> | Map: ${mapName}</p>
-                    <p>Players: <strong>${numUsed} / ${capacity}</strong></p>
+                htmlContent += `
+                    <div class="bg-gray-700 p-4 rounded-lg shadow-md border-l-4 ${cardColor}">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-xl font-bold text-yellow-300">${name} (ID: ${vehicle.getAttribute('id')})</h3>
+                            <span class="text-sm text-gray-300">${farmId === '1' ? 'YOUR FARM' : 'NPC/EXTERNAL'}</span>
+                        </div>
+                        <p class="text-gray-300 mt-2">
+                            <strong class="text-gray-400">Position (X Y Z):</strong> <span class="font-mono">${position}</span>
+                        </p>
+                        <p class="text-gray-300">
+                            <strong class="text-gray-400">Fuel/Fill:</strong> <span class="font-mono">${fillStatus}</span>
+                        </p>
+                    </div>
                 `;
+            }
 
-                WIDGET_ELEMENT.classList.add('online');
-                WIDGET_ELEMENT.innerHTML = htmlContent;
-            } catch (e) {
-                WIDGET_ELEMENT.classList.remove('online');
-                WIDGET_ELEMENT.innerHTML = `<h4><span class="status-dot"></span> FS22 Server</h4><p class="error-status">Status Check Failed (Port 8080).</p>`;
-                console.error("Status Widget Error:", e);
+            vehicleList.innerHTML = htmlContent;
+            mapStatus.textContent = 'Data Loaded Successfully';
+        }
+
+        /**
+         * Fetches and parses a single XML file.
+         * @param {string} url Path to the XML file.
+         * @returns {Promise<Document>} The parsed XML Document.
+         */
+        async function fetchAndParseXml(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                // If fetching the file fails, display the exact path we tried to access
+                throw new Error(`HTTP error! Status: ${response.status}. Attempted path: ${url}`);
+            }
+            const xmlText = await response.text();
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+            return xmlDoc;
+        }
+
+        /**
+         * Main function to load all data concurrently.
+         */
+        async function loadData() {
+            mapStatus.innerHTML = '<div class="loading-animation w-12 h-12 rounded-full border-4 border-gray-700"></div><p class="mt-3">Fetching live data...</p>';
+            
+            try {
+                // Fetch both essential files simultaneously
+                const [vehiclesDoc, careerDoc] = await Promise.all([
+                    fetchAndParseXml(VEHICLE_FILE_PATH),
+                    fetchAndParseXml(CAREER_FILE_PATH)
+                ]);
+
+                // Display data from both files
+                displayGameStatus(careerDoc);
+                displayVehicleData(vehiclesDoc);
+
+            } catch (error) {
+                console.error("Error fetching or processing XML:", error);
+                // Display the detailed error message to help troubleshooting.
+                mapStatus.innerHTML = `<p class="text-red-400">ERROR: Could not load data.</p><p class="text-sm text-gray-400 mt-2">Error Detail: ${error.message}.</p>`;
+                
+                farmNameElement.textContent = 'ERROR';
+                farmMoneyElement.textContent = 'ERROR';
             }
         }
-        
-        function handleFailure(error) {
-            console.error("Dashboard Failure:", error);
-            const errorMessage = error.message || 'Check proxy URL or server connection.';
-            
-            WIDGET_ELEMENT.classList.remove('online');
-            WIDGET_ELEMENT.innerHTML = `
-                <h4><span class="status-dot"></span> FS22 Server</h4>
-                <p>Status: <strong>Offline / Proxy Error</strong></p>
-                <p class="critical-error text-xs mt-2">Detail: ${errorMessage}</p>
-            `;
-            MAP_LOADING.textContent = "Error loading data. Check proxy or server connection.";
-        }
 
-
-        document.addEventListener('DOMContentLoaded', updateDashboard);
-        setInterval(updateDashboard, 30000); 
-
+        // Set up initial load and periodic reload
+        window.onload = () => {
+            loadData();
+            // Reload every 10 seconds (10000 milliseconds)
+            setInterval(loadData, 10000); 
+        };
     </script>
 </body>
 </html>
